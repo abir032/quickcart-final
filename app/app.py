@@ -44,3 +44,11 @@ def orders():
         return jsonify(error="internal_error", version=VERSION), 500
     rows = repo.list_orders()
     return jsonify(version=VERSION, count=len(rows), orders=rows)
+
+
+@app.get("/orders/<order_id>")
+def get_order(order_id):
+    order = repo.get_order(order_id)
+    if order is None:
+        return jsonify(error="not_found", version=VERSION), 404
+    return jsonify(version=VERSION, order=order)
