@@ -8,6 +8,12 @@ variable "environment" {
   type        = string
 }
 
+variable "compute_platform" {
+  description = "What runs the app: ecs or eks"
+  type        = string
+  default     = "ecs"
+}
+
 variable "region" {
   description = "AWS region for this environment"
   type        = string
@@ -96,4 +102,39 @@ variable "canary_weight" {
   description = "Percentage of traffic on the canary"
   type        = number
   default     = 0
+}
+
+# EKS settings. Only used when compute_platform = "eks".
+variable "eks_public_access_cidrs" {
+  description = "Addresses allowed to reach the Kubernetes API: your IP with /32"
+  type        = list(string)
+  default     = []
+}
+
+variable "eks_admin_principal_arns" {
+  description = "Extra IAM users or roles given cluster-admin"
+  type        = list(string)
+  default     = []
+}
+
+variable "eks_node_instance_types" {
+  description = "EC2 instance types for the nodes"
+  type        = list(string)
+  default     = ["c7i-flex.large"]
+}
+
+variable "eks_node_scaling" {
+  description = "Node count: min, desired, max"
+  type = object({
+    min     = number
+    desired = number
+    max     = number
+  })
+  default = { min = 1, desired = 2, max = 3 }
+}
+
+variable "gitops_repo_url" {
+  description = "HTTPS address of the GitOps repository Argo CD deploys from"
+  type        = string
+  default     = ""
 }

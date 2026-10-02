@@ -1,4 +1,5 @@
-# Everything here exists only when enable_database is true.
+# The database exists when enable_database is true. The pieces after it are
+# ECS-only: on EKS, External Secrets reads the secret (see modules/eks).
 
 module "database" {
   source = "../database"
@@ -16,7 +17,7 @@ module "database" {
 # The execution role reads the database secret so ECS can hand the username
 # and password to the app and the operations task. Scoped to this one secret.
 data "aws_iam_policy_document" "read_db_secret" {
-  count = var.enable_database ? 1 : 0
+  count = var.enable_database && local.is_ecs ? 1 : 0
 
   statement {
     effect    = "Allow"
@@ -26,15 +27,15 @@ data "aws_iam_policy_document" "read_db_secret" {
 }
 
 resource "aws_iam_role_policy" "read_db_secret" {
-  count = var.enable_database ? 1 : 0
+  count = var.enable_database && local.is_ecs ? 1 : 0
 
   name   = "read-db-secret"
-  role   = aws_iam_role.execution.id
+  role   = aws_iam_role.execution[0].id
   policy = data.aws_iam_policy_document.read_db_secret[0].json
 }
 
 resource "aws_cloudwatch_log_group" "ops_sql" {
-  count = var.enable_database ? 1 : 0
+  count = var.enable_database && local.is_ecs ? 1 : 0
 
   name              = "/ecs/${local.name}-ops-sql"
   retention_in_days = 30
@@ -59,14 +60,14 @@ locals {
 }
 
 resource "aws_ecs_task_definition" "ops_sql" {
-  count = var.enable_database ? 1 : 0
+  count = var.enable_database && local.is_ecs ? 1 : 0
 
   family                   = "${local.name}-ops-sql"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
-  execution_role_arn       = aws_iam_role.execution.arn
+  execution_role_arn       = aws_iam_role.execution[0].arn
 
   runtime_platform {
     operating_system_family = "LINUX"

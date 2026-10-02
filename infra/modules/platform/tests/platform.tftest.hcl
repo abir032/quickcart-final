@@ -2,6 +2,9 @@
 # Asserts only check values known at plan time — names, counts, settings —
 # never ARNs or IDs, which AWS only creates during apply.
 
+mock_provider "helm" {}
+mock_provider "time" {}
+
 mock_provider "aws" {
   # Values AWS would normally create. ARNs must look real, because the
   # provider checks their format even in a mocked plan.
@@ -36,6 +39,18 @@ mock_provider "aws" {
         resource_record_value = "_xyz.acm-validations.aws."
       }]
     }
+  }
+  mock_resource "aws_eks_cluster" {
+    defaults = {
+      arn      = "arn:aws:eks:us-east-1:111122223333:cluster/test"
+      endpoint = "https://ABC.gr7.us-east-1.eks.amazonaws.com"
+      certificate_authority = [{
+        data = "dGVzdA=="
+      }]
+    }
+  }
+  mock_resource "aws_kms_key" {
+    defaults = { arn = "arn:aws:kms:us-east-1:111122223333:key/abc" }
   }
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::126052242757:role/test" }
@@ -73,6 +88,7 @@ variables {
   vpc_cidr             = "10.10.0.0/16"
   enable_nat           = true
   domain_name          = "orders.dev.example.com"
+  zone_name            = "example.com"
   zone_id              = "Z0123456789ABC"
   alert_email          = "ops@example.com"
   image_repository_url = "126052242757.dkr.ecr.us-east-1.amazonaws.com/quickcart/orders"
@@ -201,4 +217,74 @@ run "rejects_canary_over_50" {
     canary_weight = 80
   }
   expect_failures = [var.canary_weight]
+}
+
+# ---------- compute_platform = "eks" ----------
+
+run "ecs_is_the_default" {
+  command = plan
+  assert {
+    condition     = output.compute_platform == "ecs" && length(module.eks) == 0 && length(module.compute) == 1
+    error_message = "Without compute_platform, the app should run on ECS and no EKS cluster should be planned"
+  }
+}
+
+run "eks_replaces_ecs" {
+  command = plan
+  variables {
+    compute_platform        = "eks"
+    gitops_repo_url         = "https://github.com/example/quickcart-gitops.git"
+    eks_public_access_cidrs = ["203.0.113.25/32"]
+  }
+  assert {
+    condition     = length(module.eks) == 1 && length(module.compute) == 0 && length(module.orders) == 0 && length(module.security_groups) == 0
+    error_message = "On eks: one EKS cluster, and no ECS cluster, services or ECS security groups"
+  }
+  assert {
+    condition     = output.eks_cluster_name == "qc-dev-use1-eks"
+    error_message = "The EKS cluster should be named <prefix>-eks"
+  }
+}
+
+run "eks_keeps_only_database_alarms" {
+  command = plan
+  variables {
+    compute_platform        = "eks"
+    gitops_repo_url         = "https://github.com/example/quickcart-gitops.git"
+    eks_public_access_cidrs = ["203.0.113.25/32"]
+  }
+  assert {
+    condition     = length(module.monitoring.alarm_names) == 2 && output.ops_sql_task_family == null
+    error_message = "On eks the load balancer belongs to a controller: only the two database alarms, and no ECS ops task"
+  }
+}
+
+run "eks_needs_gitops_repo_and_api_cidrs" {
+  command = plan
+  variables {
+    compute_platform = "eks"
+  }
+  expect_failures = [var.compute_platform]
+}
+
+run "eks_needs_nat" {
+  command = plan
+  variables {
+    compute_platform        = "eks"
+    enable_nat              = false
+    enable_ops_access       = false
+    gitops_repo_url         = "https://github.com/example/quickcart-gitops.git"
+    eks_public_access_cidrs = ["203.0.113.25/32"]
+  }
+  expect_failures = [var.compute_platform]
+}
+
+run "eks_api_never_open_to_the_internet" {
+  command = plan
+  variables {
+    compute_platform        = "eks"
+    gitops_repo_url         = "https://github.com/example/quickcart-gitops.git"
+    eks_public_access_cidrs = ["0.0.0.0/0"]
+  }
+  expect_failures = [var.eks_public_access_cidrs]
 }

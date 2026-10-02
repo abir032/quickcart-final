@@ -19,6 +19,27 @@ variable "environment" {
   }
 }
 
+variable "compute_platform" {
+  description = "What runs the app: ecs (ECS on Fargate, released by Terraform) or eks (Kubernetes, released by Argo CD from the GitOps repository)"
+  type        = string
+  default     = "ecs"
+
+  validation {
+    condition     = contains(["ecs", "eks"], var.compute_platform)
+    error_message = "compute_platform must be ecs or eks."
+  }
+
+  validation {
+    condition     = var.compute_platform == "ecs" || var.enable_nat
+    error_message = "eks needs enable_nat = true: nodes run in private subnets and must reach ECR and the EKS API."
+  }
+
+  validation {
+    condition     = var.compute_platform == "ecs" || (var.gitops_repo_url != "" && length(var.eks_public_access_cidrs) > 0)
+    error_message = "eks needs gitops_repo_url and eks_public_access_cidrs."
+  }
+}
+
 variable "region" {
   description = "AWS region to build in"
   type        = string
@@ -99,6 +120,11 @@ variable "domain_name" {
   type        = string
 }
 
+variable "zone_name" {
+  description = "Name of the hosted zone that owns domain_name, for example example.com. On EKS, ExternalDNS may only write records in it."
+  type        = string
+}
+
 variable "zone_id" {
   description = "Route 53 hosted zone that owns domain_name"
   type        = string
@@ -161,4 +187,57 @@ variable "db_deletion_protection" {
   description = "Refuse to delete the database. True for production."
   type        = bool
   default     = false
+}
+
+# ---------- EKS settings, used only when compute_platform = "eks" ----------
+
+variable "eks_kubernetes_version" {
+  description = "Kubernetes version of the EKS control plane"
+  type        = string
+  default     = "1.36"
+}
+
+variable "eks_public_access_cidrs" {
+  description = "Addresses allowed to reach the Kubernetes API: your own IP with /32"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = !contains(var.eks_public_access_cidrs, "0.0.0.0/0")
+    error_message = "Never 0.0.0.0/0 — that opens the cluster API to the whole internet. Use your own IP with /32."
+  }
+}
+
+variable "eks_admin_principal_arns" {
+  description = "Extra IAM users or roles given cluster-admin. The identity that creates the cluster is already one."
+  type        = list(string)
+  default     = []
+}
+
+variable "eks_node_instance_types" {
+  description = "EC2 instance types for the nodes"
+  type        = list(string)
+  default     = ["c7i-flex.large"]
+}
+
+variable "eks_node_scaling" {
+  description = "Node count: min, desired, max"
+  type = object({
+    min     = number
+    desired = number
+    max     = number
+  })
+  default = { min = 1, desired = 2, max = 3 }
+}
+
+variable "gitops_repo_url" {
+  description = "HTTPS address of the GitOps repository Argo CD deploys from"
+  type        = string
+  default     = ""
+}
+
+variable "gitops_revision" {
+  description = "Branch of the GitOps repository Argo CD follows"
+  type        = string
+  default     = "main"
 }

@@ -6,6 +6,8 @@ Deeper detail lives in two companion documents:
 
 - [infrastructure-guide.md](infrastructure-guide.md) — every Terraform file and property.
 - [jenkins-github-setup.md](jenkins-github-setup.md) — the Jenkins setup log, every problem we hit, and every investigation command explained.
+- [eks-reference.md](eks-reference.md) — the EKS + Argo CD version at a glance: Kubernetes and Argo CD explained.
+- [eks-argocd-guide.md](eks-argocd-guide.md) — the second way to run it: `compute_platform = "eks"`, Kubernetes on EKS, released by Argo CD (GitOps).
 
 **Contents**
 
