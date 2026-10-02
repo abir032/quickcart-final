@@ -19,24 +19,34 @@ variable "slo_availability_percent" {
   }
 }
 
+variable "enable_service_alarms" {
+  description = "Create the load balancer and service alarms. False when Terraform doesn't own the load balancer (on EKS a controller makes it). A plain true/false, because count must be known before apply and ARNs are not."
+  type        = bool
+  default     = true
+}
+
 variable "alb_arn_suffix" {
-  description = "The load balancer, as CloudWatch names it"
+  description = "The load balancer, as CloudWatch names it. Null when enable_service_alarms is false."
   type        = string
+  default     = null
 }
 
 variable "target_group_arn_suffix" {
-  description = "The stable target group, as CloudWatch names it"
+  description = "The stable target group, as CloudWatch names it. Null when enable_service_alarms is false."
   type        = string
+  default     = null
 }
 
 variable "cluster_name" {
-  description = "ECS cluster name"
+  description = "ECS cluster name. Null when enable_service_alarms is false."
   type        = string
+  default     = null
 }
 
 variable "service_name" {
-  description = "The stable ECS service name"
+  description = "The stable ECS service name. Null when enable_service_alarms is false."
   type        = string
+  default     = null
 }
 
 variable "db_instance_id" {

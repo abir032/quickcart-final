@@ -8,8 +8,23 @@ output "name" {
   value       = module.platform.name
 }
 
+output "compute_platform" {
+  description = "What runs the app: ecs or eks"
+  value       = module.platform.compute_platform
+}
+
+output "eks_cluster_name" {
+  description = "EKS cluster name. Null on ecs."
+  value       = module.platform.eks_cluster_name
+}
+
+output "kubeconfig_command" {
+  description = "Run this to point kubectl at the cluster. Null on ecs."
+  value       = module.platform.eks_cluster_name == null ? null : "aws eks update-kubeconfig --region ${var.region} --name ${module.platform.eks_cluster_name}"
+}
+
 output "cluster_name" {
-  description = "ECS cluster name"
+  description = "ECS cluster name, or EKS cluster name on eks"
   value       = module.platform.cluster_name
 }
 

@@ -1,0 +1,161 @@
+// QuickCart delivery pipeline — EKS + Argo CD (GitOps) version.
+//
+// Use it when infra/envs/<env> has compute_platform = "eks". Same CI as the ECS
+// Jenkinsfile; different CD:
+//
+//   ECS: Jenkins runs Terraform, which changes the image tag on ECS.      (push)
+//   EKS: Jenkins commits the image tag to the GitOps repo; Argo CD,
+//        running inside the cluster, sees the commit and deploys it.     (pull)
+//
+// Jenkins never needs access to the cluster.
+
+@Library('quickcart-lib') _
+
+pipeline {
+  agent { label 'linux' }
+
+  options {
+    timestamps()
+    timeout(time: 90, unit: 'MINUTES')
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '30'))
+  }
+
+  environment {
+    AWS_REGION       = 'us-east-1'
+    GITOPS_REPO      = 'abir032/quickcart-gitops'
+    TF_IN_AUTOMATION = '1'
+    TF_INPUT         = '0'
+    DEV_DIR          = 'infra/envs/dev/us-east-1'
+    PROD_DIR         = 'infra/envs/prod/us-east-1'
+  }
+
+  stages {
+    // ---------------- CI: the same as the ECS pipeline ----------------
+
+    stage('Prepare') {
+      steps {
+        script {
+          env.ACCOUNT_ID = sh(returnStdout: true, script: 'aws sts get-caller-identity --query Account --output text').trim()
+          env.REGISTRY   = "${env.ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+          env.IMAGE      = "${env.REGISTRY}/quickcart/orders"
+          env.IMAGE_TAG  = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
+          env.TOPIC_ARN  = "arn:aws:sns:${env.AWS_REGION}:${env.ACCOUNT_ID}:quickcart-pipeline"
+        }
+        echo "Commit ${env.IMAGE_TAG} on ${env.BRANCH_NAME}"
+      }
+    }
+
+    stage('Test the app') {
+      steps {
+        dir('app') {
+          sh '''
+            python3 -m venv .venv
+            . .venv/bin/activate
+            pip install -q -r requirements-dev.txt
+            flake8 --max-line-length 100 app.py test_app.py
+            mkdir -p ../reports
+            pytest -q --junitxml=../reports/pytest.xml
+          '''
+        }
+      }
+      post {
+        always { junit 'reports/pytest.xml' }
+      }
+    }
+
+    stage('Build the image') {
+      steps {
+        sh 'docker build --build-arg APP_VERSION="$IMAGE_TAG" -t "$IMAGE:$IMAGE_TAG" app'
+      }
+    }
+
+    stage('Check the Terraform') {
+      steps {
+        sh 'scripts/tf-checks.sh'
+      }
+    }
+
+    // ---------------- CD: GitOps ----------------
+
+    stage('Push the image') {
+      when { branch 'main' }
+      steps {
+        retry(3) {
+          sh '''
+            aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+            if aws ecr describe-images --repository-name quickcart/orders --image-ids imageTag="$IMAGE_TAG" >/dev/null 2>&1; then
+              echo "$IMAGE:$IMAGE_TAG is already in ECR. Nothing to push."
+            else
+              docker push "$IMAGE:$IMAGE_TAG"
+            fi
+          '''
+        }
+      }
+    }
+
+    stage('Release to dev') {
+      when { branch 'main' }
+      steps {
+        // A commit to the GitOps repo IS the deployment request.
+        withCredentials([usernamePassword(credentialsId: 'github-token',
+                                          usernameVariable: 'GH_USER',
+                                          passwordVariable: 'GITHUB_TOKEN')]) {
+          sh 'scripts/gitops-bump.sh dev "$IMAGE_TAG"'
+        }
+      }
+    }
+
+    stage('Wait for Argo CD in dev') {
+      when { branch 'main' }
+      steps {
+        script {
+          def url = sh(returnStdout: true, script: '''
+            terraform -chdir="$DEV_DIR" init -input=false >/dev/null
+            terraform -chdir="$DEV_DIR" output -raw alb_url
+          ''').trim()
+          // Argo CD checks Git about every 3 minutes, then rolls the pods.
+          // Wait up to ~10 minutes for /health to report the new version.
+          smokeTest(url: url, version: env.IMAGE_TAG, attempts: 150)
+        }
+      }
+    }
+
+    stage('Approve production') {
+      when { branch 'main' }
+      steps {
+        timeout(time: 30, unit: 'MINUTES') {
+          input message: "Release ${env.IMAGE_TAG} to production? It is live and healthy in dev.",
+                ok: 'Release to production'
+        }
+      }
+    }
+
+    stage('Release to production') {
+      when { branch 'main' }
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'github-token',
+                                          usernameVariable: 'GH_USER',
+                                          passwordVariable: 'GITHUB_TOKEN')]) {
+          sh 'scripts/gitops-bump.sh prod "$IMAGE_TAG"'
+        }
+        script {
+          def url = sh(returnStdout: true, script: '''
+            terraform -chdir="$PROD_DIR" init -input=false >/dev/null
+            terraform -chdir="$PROD_DIR" output -raw alb_url
+          ''').trim()
+          smokeTest(url: url, version: env.IMAGE_TAG, attempts: 150)
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      sh 'aws sns publish --topic-arn "$TOPIC_ARN" --subject "QuickCart (EKS) $BRANCH_NAME #$BUILD_NUMBER passed" --message "Commit $IMAGE_TAG. $BUILD_URL" >/dev/null || true'
+    }
+    failure {
+      sh 'aws sns publish --topic-arn "$TOPIC_ARN" --subject "QuickCart (EKS) $BRANCH_NAME #$BUILD_NUMBER FAILED" --message "Commit $IMAGE_TAG. Open the build: $BUILD_URL" >/dev/null || true'
+    }
+  }
+}

@@ -21,6 +21,8 @@ locals {
 # The SLO alarm. Failed requests as a share of all requests, over 5 minutes.
 # Counts both the app's errors and the load balancer's own (no task answered).
 resource "aws_cloudwatch_metric_alarm" "error_rate" {
+  count = var.enable_service_alarms ? 1 : 0
+
   alarm_name          = "${var.name}-error-rate-above-slo"
   alarm_description   = "More than ${local.error_budget_percent}% of requests failed: the ${var.slo_availability_percent}% availability target is being missed."
   comparison_operator = "GreaterThanThreshold"
@@ -74,6 +76,8 @@ resource "aws_cloudwatch_metric_alarm" "error_rate" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "unhealthy_targets" {
+  count = var.enable_service_alarms ? 1 : 0
+
   alarm_name          = "${var.name}-unhealthy-targets"
   alarm_description   = "At least one task has failed its health check for 3 minutes."
   namespace           = "AWS/ApplicationELB"
@@ -91,6 +95,8 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_targets" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "service_cpu" {
+  count = var.enable_service_alarms ? 1 : 0
+
   alarm_name          = "${var.name}-service-cpu-high"
   alarm_description   = "Average CPU above 85% for 10 minutes, even with auto scaling. Check whether it has hit its maximum."
   namespace           = "AWS/ECS"

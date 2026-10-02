@@ -8,9 +8,29 @@ output "alb_url" {
   value       = "https://${var.domain_name}"
 }
 
+output "compute_platform" {
+  description = "What runs the app: ecs or eks"
+  value       = var.compute_platform
+}
+
 output "cluster_name" {
-  description = "ECS cluster name"
-  value       = module.compute.cluster_name
+  description = "ECS cluster name, or EKS cluster name on eks"
+  value       = local.is_ecs ? module.compute[0].cluster_name : module.eks[0].cluster_name
+}
+
+output "eks_cluster_name" {
+  description = "EKS cluster name. Null on ecs."
+  value       = local.is_eks ? module.eks[0].cluster_name : null
+}
+
+output "eks_cluster_endpoint" {
+  description = "Kubernetes API address. Null on ecs."
+  value       = local.is_eks ? module.eks[0].cluster_endpoint : null
+}
+
+output "eks_cluster_ca" {
+  description = "Cluster certificate authority, base64. Null on ecs."
+  value       = local.is_eks ? module.eks[0].cluster_ca : null
 }
 
 output "vpc_id" {
@@ -40,7 +60,7 @@ output "canary_weight" {
 
 output "target_group_arns" {
   description = "Target groups, keyed stable and canary"
-  value       = module.compute.target_group_arns
+  value       = local.is_ecs ? module.compute[0].target_group_arns : null
 }
 
 output "log_groups" {
@@ -57,7 +77,7 @@ output "task_subnet_ids" {
 
 output "app_security_group_id" {
   description = "Security group for app and operations tasks"
-  value       = module.security_groups.app_id
+  value       = local.is_ecs ? module.security_groups[0].app_id : null
 }
 
 output "assign_public_ip" {
@@ -67,12 +87,12 @@ output "assign_public_ip" {
 
 output "ops_sql_task_family" {
   description = "Task definition family for the safe SQL job. Null when there is no database."
-  value       = var.enable_database ? aws_ecs_task_definition.ops_sql[0].family : null
+  value       = var.enable_database && local.is_ecs ? aws_ecs_task_definition.ops_sql[0].family : null
 }
 
 output "ops_sql_log_group" {
   description = "Where the safe SQL job's output goes"
-  value       = var.enable_database ? aws_cloudwatch_log_group.ops_sql[0].name : null
+  value       = var.enable_database && local.is_ecs ? aws_cloudwatch_log_group.ops_sql[0].name : null
 }
 
 output "ops_instance_id" {
@@ -92,5 +112,5 @@ output "alerts_topic_arn" {
 
 output "alb_logs_bucket" {
   description = "Load balancer access logs"
-  value       = module.compute.alb_logs_bucket
+  value       = local.is_ecs ? module.compute[0].alb_logs_bucket : null
 }
