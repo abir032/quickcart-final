@@ -8,7 +8,7 @@ compute_platform = "ecs"   # ECS on Fargate, released by Terraform  (Jenkinsfile
 compute_platform = "eks"   # EKS, released by Argo CD from Git     (Jenkinsfile.eks)
 ```
 
-Read [quickcart-reference.md](quickcart-reference.md) first — this guide only covers what's different.
+Read [quickcart-reference.md](quickcart-reference.md) first — this guide only covers what's different. For a one-page overview with Kubernetes and Argo CD explained, see [eks-reference.md](eks-reference.md).
 
 **Contents**
 
