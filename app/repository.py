@@ -15,6 +15,9 @@ class InMemoryOrders:
     def list_orders(self):
         return list(self._rows)
 
+    def get_order(self, order_id):
+        return next((row for row in self._rows if row["id"] == order_id), None)
+
     def ping(self):
         return True
 
@@ -57,6 +60,16 @@ class MySQLOrders:
             with conn.cursor() as cur:
                 cur.execute("SELECT id, item, qty FROM orders ORDER BY id")
                 return cur.fetchall()
+        finally:
+            conn.close()
+
+    def get_order(self, order_id):
+        conn = self._connect()
+        try:
+            self._ensure_schema(conn)
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, item, qty FROM orders WHERE id = %s", (order_id,))
+                return cur.fetchone()
         finally:
             conn.close()
 

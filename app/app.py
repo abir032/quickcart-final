@@ -46,7 +46,7 @@ def orders():
     return jsonify(version=VERSION, count=len(rows), orders=rows)
 
 
-@app.get("/orders/<order_id>")
+@app.get("/orders/<int:order_id>")
 def get_order(order_id):
     order = repo.get_order(order_id)
     if order is None:
