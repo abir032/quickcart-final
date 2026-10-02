@@ -1,0 +1,25 @@
+# Terraform working files — never commit
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+.terraform.tfstate.lock.info
+
+# Python
+__pycache__/
+.venv/
+.pytest_cache/
+reports/
+
+# Local notes and secrets
+*.pem
+.env
+logs-*.txt
+
+# Holds your own IP address — not for the repository
+infra/jenkins/terraform.tfvars
+
+# macOS
+.DS_Store

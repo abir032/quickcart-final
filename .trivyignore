@@ -1,0 +1,5 @@
+# Findings accepted for the WHOLE repository. Prefer an inline comment
+# (#trivy:ignore:ID) on the one resource it applies to, with the reason —
+# a global ignore here would also hide the next accidental case.
+#
+# Nothing is ignored globally at the moment.
