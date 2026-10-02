@@ -20,6 +20,22 @@ def test_orders_returns_three():
     assert r.get_json()["count"] == 3
 
 
+def test_order_by_id_is_found():
+    r = client().get("/orders/2")
+    assert r.status_code == 200
+    assert r.get_json()["order"] == {"id": 2, "item": "monitor", "qty": 1}
+
+
+def test_missing_order_is_not_found():
+    r = client().get("/orders/999")
+    assert r.status_code == 404
+    assert r.get_json()["error"] == "not_found"
+
+
+def test_order_id_must_be_a_number():
+    assert client().get("/orders/abc").status_code == 404
+
+
 def test_every_response_reports_its_version():
     for path in ("/health", "/ready", "/", "/orders"):
         assert "version" in client().get(path).get_json()
