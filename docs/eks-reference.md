@@ -57,6 +57,87 @@ Companion documents:
  REQUEST: browser → Route 53 → ALB (HTTPS) → pod IP :8080 → MySQL
 ```
 
+### Inside EKS only
+
+Everything that makes up the cluster, where it physically runs, and who talks to whom. (Jenkins and Git are outside; Argo CD is their only link in.)
+
+```
+┌──────────────────────── AWS-MANAGED (AWS's account — you never see these machines) ────────────────────────┐
+│  EKS CONTROL PLANE  qc-dev-use1-eks        (≈ $0.10/hour, spread over 3 zones, patched by AWS)              │
+│                                                                                                             │
+│   kube-apiserver ◄──────── every request in the cluster goes through here ─────────────────┐               │
+│        │                                                                                    │               │
+│   etcd  (desired state: all applied YAML; Secrets encrypted with your KMS key)              │               │
+│   kube-scheduler  (picks a node for each new pod)                                           │               │
+│   controller-manager  (built-in loops: Deployment → ReplicaSet → Pods, …)                   │               │
+│                                                                                             │               │
+│   endpoints:  public  ◄── only eks_public_access_cidrs (your laptop: kubectl, terraform)    │               │
+│               private ◄── network interfaces placed in your app subnets (nodes, pods) ──────┘               │
+└──────────────────────────────────────────────────┬──────────────────────────────────────────────────────────┘
+                                                   │ private endpoint
+┌───────────────────────────────────────────── YOUR VPC ─────────────────────────────────────────────────────┐
+│                                                                                                             │
+│  PUBLIC SUBNETS (a, b)                                                                                      │
+│    ALB  k8s-orders-…  ◄── created by the AWS Load Balancer Controller from the Ingress                       │
+│     │ 443 (ACM cert) · 80 → 443 · health check /health · targets = pod IPs                                  │
+│    NAT gateway ──► internet (ECR, AWS APIs, GitHub for Argo CD)                                             │
+│     │                                                                                                       │
+│  APP SUBNETS (private)                                                                                      │
+│  ┌─────────────── NODE 1 · EC2 · zone a ───────────────┐   ┌─────────────── NODE 2 · EC2 · zone b ───────┐  │
+│  │ on every node (DaemonSets / system):                 │   │ same system pieces                           │  │
+│  │   kubelet       runs and checks this node's pods     │   │                                              │  │
+│  │   containerd    pulls images, runs containers        │   │                                              │  │
+│  │   kube-proxy    Service IP → pod IP routing          │   │                                              │  │
+│  │   aws-node      VPC CNI: real VPC IP for every pod   │   │                                              │  │
+│  │   pod-identity  hands pods their IAM credentials     │   │                                              │  │
+│  │                                                      │   │                                              │  │
+│  │ pods (spread by the scheduler):                      │   │                                              │  │
+│  │   orders/orders-…   app :8080      ◄─── ALB ─────────┼───┼─► orders/orders-…   app :8080                │  │
+│  │   argocd/application-controller, repo-server, …      │   │   argocd/server, redis                       │  │
+│  │   kube-system/aws-load-balancer-controller           │   │   kube-system/coredns, metrics-server        │  │
+│  │   external-dns/external-dns                          │   │   external-secrets/external-secrets          │  │
+│  └──────────────────────────────────────────────────────┘   └──────────────────────────────────────────────┘  │
+│            │ pods → MySQL :3306 (cluster security group allowed)                                              │
+│  DATA SUBNETS (no route out)                                                                                │
+│    RDS MySQL qc-dev-use1-db                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+AWS services the cluster calls (each with its own Pod Identity role, no keys):
+  ECR             ◄── node role (pull images)
+  ELB API         ◄── aws-load-balancer-controller (create/update the ALB)
+  Route 53        ◄── external-dns (one zone only)
+  Secrets Manager ◄── external-secrets (one secret only)
+  CloudWatch Logs ◄── control plane (api, audit, authenticator logs)
+```
+
+**Who talks to whom, numbered:**
+
+```
+ 1  you ──kubectl/terraform──► API server (public endpoint, your IP only)
+ 2  Argo CD ──git clone──► quickcart-gitops (via NAT)          → renders the Helm chart
+ 3  Argo CD ──apply──► API server (private endpoint)           → Deployment, Service, Ingress, HPA, …
+ 4  controller-manager: Deployment → ReplicaSet → pod objects
+ 5  scheduler: assigns each pod to a node
+ 6  kubelet on that node: containerd pulls the image from ECR (node role, via NAT/S3 endpoint), starts it
+ 7  aws-node gives the pod a VPC IP; readinessProbe → Ready
+ 8  LB controller sees the Ingress → creates the ALB, registers Ready pod IPs
+ 9  ExternalDNS sees the Ingress host → Route 53 record → the ALB
+10  External Secrets sees the ExternalSecret → reads Secrets Manager → Secret orders-db → pod env
+11  metrics-server → HPA: adds/removes pods on CPU
+12  customer → Route 53 → ALB → pod IP → RDS
+```
+
+**Who decides vs who executes:**
+
+| Role | Component | Decides / does |
+|---|---|---|
+| Source of truth | Git (`quickcart-gitops`) | *What* should run |
+| CD (deploys) | **Argo CD** | Makes the cluster match Git |
+| Orchestrator | **Kubernetes** (API server, scheduler, controllers, kubelet) | *How* it runs: places pods, rolls updates, restarts failures |
+| Platform | **EKS** | Runs Kubernetes for you: control plane, node lifecycle, add-ons, IAM integration |
+| AWS bridges | LB controller, ExternalDNS, External Secrets | Turn Kubernetes objects into ALB, DNS, Secrets |
+| Machines | EC2 nodes (managed node group) | CPU and memory for every pod |
+
 Who owns what:
 
 | Layer | Owner | Lives in |
